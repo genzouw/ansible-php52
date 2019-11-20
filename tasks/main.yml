@@ -1,0 +1,134 @@
+---
+- name: install packages to build php
+  yum: name={{ packages }} state=present enablerepo=epel
+  vars:
+    packages:
+    - gcc
+    - make
+    - libxml2
+    - libxml2-devel
+    - httpd
+    - httpd-devel
+    # FIXME: depends on extension
+    - pcre-devel
+    - bzip2-devel
+    - curl-devel
+    - libjpeg-devel
+    - libpng-devel
+    - freetype-devel
+    - gmp-devel
+    - libc-client-devel
+    - libmcrypt-devel
+    - libmhash-devel
+    - freetds-devel
+    - mysql-devel
+    - ncurses-devel
+    - unixODBC-devel
+    - postgresql-devel
+    - sqlite-devel
+    - aspell-devel
+    - readline-devel
+    - net-snmp
+    - net-snmp-devel
+    - libtidy-devel
+    - libxslt
+    - libtool-ltdl-devel
+    - libssh2
+    - libssh2-devel
+
+- name: check php version
+  shell: php -r 'echo phpversion();'
+  register: current_php_version
+  failed_when: False
+  changed_when: False
+  check_mode: no
+
+- name: check php configure
+  shell: php -i | grep 'Configure Command' |sed "s/.*  //" |sed "s/'//g"
+  register: current_php_configure
+  failed_when: False
+  changed_when: False
+  check_mode: no
+
+- name: check httpd version
+  shell: httpd -v |grep 'Server version' |sed 's/.*Apache\///' |sed 's/ .*//'
+  register: apatch_version
+  failed_when: False
+  changed_when: False
+  check_mode: no
+
+- name: Install php
+  when: current_php_version.stdout is version_compare('5.2.17', '!=') or current_php_configure.stdout != configure_options | join(' ') or force_build
+  block:
+    - name: downloads
+      block:
+        - name: download php52 source
+          get_url:
+            url: http://museum.php.net/php5/php-5.2.17.tar.gz
+            sha256sum: 1abe07c1fdd64184708a3ba179abcfcca5662a4e0d2037eb2748b75abc42e767
+            dest: /usr/local/src/php-5.2.17.tar.gz
+            force: True
+
+        - name: download patch
+          get_url:
+            url: https://mail.gnome.org/archives/xml/2012-August/txtbgxGXAvz4N.txt
+            sha256sum: c834246a33f7518bb76e292a658da955ca4a4103d2eb144e18124721f3d2b10b
+            dest: /usr/local/src/php-5.2.17.patch
+            force: True
+
+    - name: setup source
+      block:
+        - name: remove prepare
+          file: path=/usr/local/src/php-5.2.17 state=absent
+
+        - name: unarchive
+          unarchive:
+            src: /usr/local/src/php-5.2.17.tar.gz
+            dest: /usr/local/src
+            remote_src: yes
+
+        - name: Apply patch 1
+          shell: patch -p0 < /usr/local/src/php-5.2.17.patch
+          args:
+            chdir: /usr/local/src/php-5.2.17
+
+        - name: Apply patch for apatch 2.4
+          patch:
+            src: php-5.2.17-php_functions.patch
+            dest: /usr/local/src/php-5.2.17/sapi/apache2handler/php_functions.c
+          when: apatch_version.stdout is version_compare('2.4', '>=')
+
+    - name: build packages
+      block:
+        - name: configure
+          shell: ./configure {{ configure_options | join(' ') }}
+          args:
+            chdir: /usr/local/src/php-5.2.17
+
+        - name: make
+          make:
+            chdir: /usr/local/src/php-5.2.17
+
+        - name: install
+          make:
+            chdir: /usr/local/src/php-5.2.17
+            target: install
+
+- name: install pear
+  shell: php /usr/local/src/php-5.2.17/pear/install-pear-nozlib.phar
+
+- name: setup ssh2 for php
+  block:
+    - name: install pecl packages ssh2
+      shell: echo "autodetect" | pecl install ssh2-0.13
+      args:
+        creates: /etc/php.d/ssh2.ini
+
+    # FIXME: use ini_file module
+    - name: php.ini change ssh2
+      copy:
+        content: "extension=ssh2.so{{'\n'}}"
+        dest: /etc/php.d/ssh2.ini
+        owner: root
+        group: root
+        mode: 0644
