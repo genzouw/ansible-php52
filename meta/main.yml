@@ -1,0 +1,13 @@
+---
+galaxy_info:
+  role_name: ansible-php52
+  author: Kazuki Tsunemi
+  description: Ansible role to install Python 5.2
+  issue_tracker_url: https://github.com/ksilverwall/ansible-php52/issues
+  license: MIT
+  min_ansible_version: 2.5.2
+  github_branch: master
+  galaxy_tags:
+    - php5
+    - php
+dependencies: []
